@@ -1,0 +1,270 @@
+---
+title: "Infrastructure Investment and Jobs"
+author: "Umer Farooq"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::downcute:
+    self_contained: true
+    default_style: "light"
+    downcute_theme: "default"
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+## Global options
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+## Problem Statement:
+
+The Provided Excel file contains data on the present allocation of the Infrastructure Investment and Jobs Act funding by State and Territory. Your story (Data Visualization(s) ) should address the following questions:
+
+1)  Is the allocation equitable based on the population of each of the States and Territories, or is bias apparent?
+
+2)  Does the allocation favor the political interests of the Biden administration?
+
+## Loading the data:
+
+```{r warning=FALSE, message=FALSE, include=FALSE}
+library(tidyverse)
+library(rvest)
+library(patchwork)
+```
+
+The dataset provided was in `.xlsx` format. In order to make the work reproducible and easy I have changed the format to `.csv` and uploaded it to my github profile. From where the dataset has been loaded into the markdown using the code below:
+
+```{r warning=FALSE, message=FALSE}
+github_link <- "https://raw.githubusercontent.com/Umerfarooq122/Data_sets/main/Untitled%20spreadsheet%20-%20Sheet1.csv"
+#library(httr)
+df <- read.csv(github_link)
+```
+
+Let's display the head of the data to see if everything is loaded the way it was suppose to be:
+
+```{r warning=FALSE, message=FALSE}
+knitr::kable(head(df))
+```
+
+As we can see that the data loaded properly into the markdown but we still have to fix the column names as they did not come out the way they were in the original file so let's fix that:
+
+```{r}
+colnames(df) <- c("State_Territory", "Total_billions")
+knitr::kable(head(df))
+```
+
+Now let's check out if there is any missing values in the given dataset:
+
+```{r warning=FALSE, message=FALSE}
+sum(is.na(df))
+```
+
+It seems like there are no missing values but we have a problem and that is that we have source data for population from outside in order to answer the first question. Similarly, for second question we have to source the data about the results of election.
+
+### Loading and wrangling Population data:
+
+In order to acquire the population data I will use Wikipedia as a source and will get the latest 2022 census data from Wikipedia.
+
+```{r warning=FALSE, message=FALSE}
+# Reading in the table from Wikipedia
+page = read_html("https://en.wikipedia.org/wiki/List_of_U.S._states_and_territories_by_population")
+# Obtain the piece of the web page that corresponds to the "wikitable" node
+my.table = html_node(page, ".wikitable")
+# Convert the html table element into a data frame
+my.table = html_table(my.table, fill = TRUE)
+# Extracting and tidying a single column from the table and adding row names
+New_data <- data.frame(my.table)
+final <- data.frame(toupper(New_data$State.or.territory),New_data$Census.population.8..a., New_data$House.of.Reps.from.the.2022.elections)
+```
+
+Now we have got the data for population along side house of representative for each state but some of the values are not in correct form plus the column names needs to be consistent if we are performing a join with our original data so let's fix the values and column names
+
+```{r warning=FALSE, message=FALSE}
+final[final=="GUAM[10]"] <- "GUAM"
+final[final == "U.S. VIRGIN ISLANDS[11]"] <- "US VIRGIN ISLANDS"
+final[final == "AMERICAN SAMOA[12]"] <- "AMERICAN SAMOA"
+final[final == "NORTHERN MARIANA ISLANDS[13]"] <- "NORTHERN MARIANA ISLANDS"
+```
+
+```{r}
+colnames(final) <- c("State_Territory", "Population", "Seats")
+```
+
+Since the column names and values are fixed now we can perfom a left join to our original data:
+
+```{r}
+new <- left_join(df, final, by = "State_Territory")
+```
+
+Some rows has character `"N/A" instead of null values so let's fix that too:`
+
+```{r}
+new[new=="N/A"] <- NA
+```
+
+Now our dataset contain information about population but before going ahead let's check out the data type of each column.
+
+```{r}
+str(new)
+```
+
+As we can see that Population and Seats columns does not have the numeric type so let's fix that too:
+
+```{r}
+new$Population <- as.numeric(gsub(",","",new$Population))
+new$Seats <- as.numeric(gsub('[^[:alnum:] ]', '', new$Seats))
+```
+
+Now our dataset is ready and let's just reorder the data base on descending allocations:
+
+```{r}
+new <- new %>% arrange(desc(Total_billions))
+```
+
+### Loading the wrangling elections results data:
+
+For the election results data I have used `www.Kaggle.com` as a source. I have downloaded the `.csv` from Kaggle and uploaded into my github from where I have loaded the data using the code below:
+
+```{r}
+winner <- read.csv("https://raw.githubusercontent.com/Umerfarooq122/Data_sets/main/Untitled%20spreadsheet%20-%20voting.csv.csv")
+```
+
+This file contain a lot of columns we don't need so I will use the one that only contains the name of State or Territory and election results:
+
+```{r}
+bwin <- data.frame(toupper(winner$state),winner$biden_win)
+```
+
+Let's fix the column names before joining it our previous dataset:
+
+```{r}
+colnames(bwin) <- c("State_Territory", "Biden_win")
+```
+
+We can perform join now:
+
+```{r}
+new_biden <- left_join(new, bwin, by = "State_Territory")
+```
+
+Let;s make sure that our new column has the right type of data:
+
+```{r}
+new_biden$Biden_win <- as.factor(new_biden$Biden_win)
+```
+
+```{r}
+knitr::kable(head(new_biden))
+```
+
+```{r}
+str(new_biden)
+```
+
+### Loading and Wrangling Revenue Data:
+
+To get a different perspective let's add the revenue generated by each state for year 2022 and see if the funds were allocated based on the revenue generated by each state. I have downloaded the data for revenue generated by each state using `www.statista.com` and has been loaded into the markdown using the code chunk below:
+
+```{r}
+reven <- read.csv('https://raw.githubusercontent.com/Umerfarooq122/Data_sets/main/Revenue%20Data.csv')
+
+head(reven)
+```
+
+Let's use the columns that we need:
+
+```{r}
+reven <- data.frame(toupper(reven$X.1), reven$X.2)
+```
+
+Removing un-necessary row from the dataset:
+
+```{r}
+reven <- reven[-(1:4),]
+```
+
+Fixing column names for left Join
+
+```{r}
+colnames(reven) <- c("State_Territory", "Revenue_billions")
+```
+
+Performing left Join and Creating a final data set:
+
+```{r}
+final_data <- left_join(new_biden, reven, by = "State_Territory")
+```
+
+Changing population row into millions:
+
+```{r}
+final_data$Population <- as.numeric((final_data$Population)/1000000)
+```
+
+Displaying the first few row of our final data:
+
+```{r}
+knitr::kable(head(final_data))
+```
+
+## Data Analysis:
+
+In order to analyze the data and try to answer the questions below:
+
+1)  Is the allocation equitable based on the population of each of the States and Territories, or is bias apparent?
+
+2)  Does the allocation favor the political interests of the Biden administration?
+
+We will plot the allocation for each state or territory and compare it with the population of the respective state. We will order the data represented in the graph by descending the amount of billions allocated. To answer the second we will use the election results for each territory or state. Since we have the results available in the form of win or lose i.e. 1, 0. Which is a factorized data so we can use that as a fill for our bar chart to show which territories and states were won by president Biden.
+
+```{r}
+# Graph for total allocation
+p1 <- ggplot(data = final_data, aes(x = reorder(State_Territory,Total_billions),y = Total_billions))+
+geom_bar(stat = "identity")+labs(x ="", y = "Total (Billions)")+coord_flip()+theme_bw()+theme(axis.text.y  = element_text(face="bold",size=10))
+
+```
+
+```{r}
+# Graph for population
+p2 <- ggplot(data = final_data, aes(x = reorder(State_Territory, Total_billions) , y = Population, fill = Biden_win))+
+geom_bar(stat = "identity")+labs(x ="", y = "Population (millions)")+coord_flip()+ scale_fill_discrete(name = "Biden Win")+theme_bw()+theme(axis.text.y  = element_blank())
+```
+
+```{r warning=FALSE, fig.width= 8, fig.height=8}
+p1 + p2
+```
+
+The above horizontal bar chart is ordered in the descending order of funds allocated and by comparing both of the graphs above we can clearly see that Florida has way more population than Illinois and New York but still ended up below these two states. Similarly North Carolina has more population than Michigan, Virginia and New Jersey but again when it comes to fund allocation it is below these states in the list which advocates for un-equatable allocation of funds when it comes to population. Another similarity in the cases of above two states i.e. Florida and North Carolina is that both of these states were lost by Biden in the previous elections so the fund allocations could very well be a political move by Biden administration rather than looking at the population of these states. Having said that we still cannot conclude that those allocation had a political motive since there in another aspect to look at.
+
+Most of the times governments allocate funds in anticipation of generating revenues so it would be unfair to conclude without looking at the revenue generated by each state. Another reason why I am referring back to more data is that even though Florida (not won by Biden) did not get enough fund allocations even though it has more population that New York and Illinois (won by Biden) but the same graph also shows that states like Massachusetts and Arizona (won by Biden) with more population are getting less funds than states like Kentucky, Louisiana, Alaska, Missouri and Tennessee (not won by Biden). Which hints about the fund allocation not being political.
+
+On would argue that maybe those states have more electoral seats and that is why Biden administration is pouring more money into. In order to confirm that lets plot the seats too.
+
+```{r}
+p3 <-  ggplot(data = final_data, aes(x = reorder(State_Territory, Total_billions) , y = Seats, fill = Biden_win))+
+  geom_bar(stat = "identity")+ theme_bw()+scale_fill_discrete(name = "Biden Win")+theme(axis.text.y  = element_blank())+labs(x ="", y = "Seats")+coord_flip()
+```
+
+```{r warning=FALSE, fig.width= 8, fig.height=8}
+p1+p3
+```
+
+We can clearly see that the number of seats does not affect the over all fund allocation or in other words the above graph is not conclusive enough to say that Biden administration allocated more funds to the states that has more Seats.
+
+Let's Use the revenue generated by each state and see if we find any clues:
+
+```{r}
+p4 <- ggplot(data = final_data, aes(x = reorder(State_Territory, Total_billions), y = Revenue_billions, fill = Biden_win ))+
+  geom_bar(stat = "identity")+ scale_fill_discrete(name = "Biden Win")+labs(x ="", y = "Revenue (Billions)")+coord_flip()+theme_bw()+theme(axis.text.y  = element_blank())
+```
+
+```{r warning=FALSE, fig.width= 8, fig.height=8}
+p1+ p2+theme(legend.position = 'none') +p4
+```
+
+The above graph advocates for the fact that even though Florida has way more population than Illinois and New York but it could not generate revenue as much as New York and Illinois did previous year and that could be a factor why Florida got less fund allocation. Similarly New Jersey has lower population than North Carolina but it generated more revenue. Another Noticeable point over here is that even though Texas could not generate as much revenue as New York but it got more fund than New York even though previous results shows that Biden Lost in Texas which again strengthens the view point of fund allocation not being political. 
+
+## Conclusion:
+
+The graphs have clearly shown that the fund allocation was not equatable to the population of the state or Territory. Florida and North Carolina have been the highlight of that while there was no conclusive answer to whether the fund allocated was purely based on political motive of Biden administration because even though both Florida and North Carolina were lost by Biden in previous elections irrespective of having more population they got less fund compared to New York and New Jersey respectively. But after looking at the revenue generated by New York and New Jersey compared to Florida and North Carolina respectively, one would argue that more funds were allocated based on revenue generated by these states. 
+
